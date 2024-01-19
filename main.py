@@ -35,6 +35,11 @@ def main():
     # print()
 
     pyFiles[0].extractImportBlock()
+    pyFiles[0].defBlocks[0].addHeaderKv(
+        [("some_tag", "smt"), ("blank_region", "feat_val")])
+
+    pyFiles[0].getText()
+    # pyFiles[0].defBlocks[1].addHeaderKv(("key", "value"))
 
 if __name__ == "__main__":
     main()
