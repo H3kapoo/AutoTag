@@ -304,7 +304,7 @@ class UMFile():
 
             newHeader += f"  * @{k}: {newVs}\n"
         newHeader += f"  *\n{self.footer}\n"
-        newHeader += f"{CONFIG['comm_end']}\n"
+        newHeader += f"{CONFIG['comm_end']}\n\n"
 
         return newHeader + ''.join(self.lines[self.bodyStartIndex:])
 
@@ -341,13 +341,16 @@ def main():
     # with open('output.txt', 'w') as f:
     #     f.writelines(umFiles[0].__str__())
     # print(umFiles[0])
-    pyFiles = []
-    for v in interestingPyTokens.items():
-        p = PyFile(v)
-        # p...
+
+    for v in interestingUtMtTokens:
+        p = UMFile(v)
         with open(p.filePath, 'w') as f:
             f.writelines(p.__str__())
-        # pyFiles.append(PyFile(v).addKVsToModifiedDefs
+
+    for v in interestingPyTokens.items():
+        p = PyFile(v)
+        with open(p.filePath, 'w') as f:
+            f.writelines(p.__str__())
 
     # pyFiles[0].addKVsToModifiedDefs({"some_key": ["some_val"]})
     # print(pyFiles[0])
