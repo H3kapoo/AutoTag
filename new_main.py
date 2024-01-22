@@ -1,13 +1,39 @@
 import re
 
+# DATA = '''@pytest.mark.use_case(
+# 'CellMgmt_5gCellMappingAndConfigUpdate',
+# 'StateMgmt_Rp1RadioBlocking',
+# 'CellMgmt_5gCellMappingAndConfigUpdate5','CellMgmt_5gCellMappingAndConfigUpdate4',
+# 'CellMgmt_5gCellModification')
+# @pytest.mark.feature('5GC001542-FA', '5GC001526-BA', '5GC001546-PA')
+# @pytest.mark.description('some very nice (ce)
+#         cu ceva spatrii text')
+# @pytest.mark.pronto('PR681495', 'PR696695', 'PR698378', 'PR712349')
+# '''
+
+# /**
+#   * @feature: x,y,z
+#   * @pro: x,y, z, fe, adwef,
+#   *       fe, gtgfwe
+#   * @some: other, tag
+#   *
+#   * CopyrightStuff
+# **/
+
 
 CONFIG = {
-    "max_row_len" : 120,
+    # general
+    "max_row_len" : 50,
+    "enable_logs" : True,
+    # "enable_logs" : False
+    # py specific
     "ignored_markers" : ["description", "dorondo"],
     "marker_to_split" : "@mark.sc.",
     "markers_end" : "@starting_state",
-    # "enable_logs" : True
-    "enable_logs" : False
+    # um spcific
+    "comm_start" : "/**",
+    "comm_end" : "**/",
+    "footer_msg" : "Some copyright here"
 }
 
 DIFF_PATH = "file_bc.diff"
@@ -16,16 +42,22 @@ PY_FILE_RULE = "^\+\+\+.*/py/.*"
 PY_REGEX_RULE = ".* def .*"
 
 class PyHeaderMarks():
-    def __init__(self, data):
+    def __init__(self, data, tokenize = True):
         self.data = data
+        self.shouldTokenize = tokenize
         self.KVs = {}
-        self.tokenize()
+
+        if self.shouldTokenize:
+            self.tokenize()
 
     def __log(self, msg, end='\n'):
         if CONFIG['enable_logs']:
             print(msg, end=end)
 
     def __str__(self):
+        if not self.shouldTokenize:
+            return ''.join(self.data)
+
         self.data = ''
         for k,v in self.KVs.items():
             newVs = ''
@@ -114,9 +146,13 @@ class PyFile():
         self.includeHeaders = ''
         self.tests = []
 
-        with open(self.filePath) as f:
+        self.__log(f"[INFO] Separating file {self.filePath} into blocks..");
+        with open(self.filePath, 'r') as f:
             self.lines = f.readlines()
         self.separate()
+        self.__log(f"[INFO] Separation done.");
+        self.__log(f"[INFO] Functions needing modification: {self.changedDefs}");
+
 
     def separate(self):
         idx = 0
@@ -156,29 +192,132 @@ class PyFile():
             # might need it like so, so leave it like it is now
             self.tests.append((
                 PyHeaderMarks(''.join(headerLines.copy())),
-                ''.join(bodyLines.copy())
+                PyBody(''.join(bodyLines.copy()))
                 ))
             headerLines = []
             bodyLines = []
 
+    def addKVsToModifiedDefs(self, newKVs):
+        for test in self.tests:
+            test[0].addKVs(newKVs)
+
+    def removeKVsToModifiedDefs(self, oldKVs):
+        for test in self.tests:
+            test[0].removeKVs(oldKVs)
 
     def __str__(self):
         allNewLines = self.includeHeaders
 
         for v in self.tests:
-            allNewLines += v[0].__str__() + v[1]
+            allNewLines += v[0].__str__() + v[1].__str__()
 
         return allNewLines
 
+    def __log(self, msg, end='\n'):
+        if CONFIG['enable_logs']:
+            print(msg, end=end)
+
+
+class UMFile():
+    def __init__(self, filePath):
+        self.filePath = filePath
+        self.lines = []
+        self.KVs = {}
+
+        self.__log(f"[INFO] Separating file {self.filePath} into header & block..");
+        with open(self.filePath, 'r') as f:
+            self.lines = f.readlines()
+        self.separate()
+        self.__log(f"[INFO] Separation done.");
+
+    def separate(self):
+        headerData = ''
+        bodyData = ''
+        startMarkerFound = False
+
+        # This assumes /** **/ correctly exist
+        for i, ln in enumerate(self.lines):
+            if CONFIG['comm_start'] in ln:
+                startMarkerFound = True
+
+            if startMarkerFound:
+                headerData += ln
+
+            if startMarkerFound and CONFIG['comm_end'] in ln:
+                bodyData += ''.join(self.lines[i+1:])
+                break
+        
+        # In case they dont exist, means file has no header data yet, create one
+        if not startMarkerFound:
+            headerData = f"{CONFIG['comm_start']}\n  * {CONFIG['footer_msg']}\n{CONFIG['comm_end']}\n"
+
+        splittedHeader = headerData.split('\n')  
+        tagsUnfiltered = splittedHeader[1:-4]
+        tagsAlmostThere = ''.join([v.replace(" ", "").replace("*","") for v in tagsUnfiltered])
+        
+        # This is done in order to account for multiline tags
+        tags = tagsAlmostThere.split("@")[1:]
+
+        for tag in tags:
+            k,v = tag.split(":")
+            self.KVs[k] = v.split(",") 
+        print(self.KVs)
+
+        footer = splittedHeader[-3]
+
+        # assemble back
+        print(f"{CONFIG['comm_start']}")    
+        for k,v in self.KVs.items():
+            newVs = ''
+            keyLen = len(f"  * @{k}: ")
+            curLen = keyLen
+            vLen = len(v)
+            for i, vi in enumerate(v):
+                possibleNewVal = vi + (", " if i < vLen-1 else "")
+                possibleNewValLen = len(possibleNewVal)
+                nextLen = curLen + possibleNewValLen
+                if nextLen > CONFIG['max_row_len']:
+                    newVs += "\n" + " "*keyLen
+                    curLen = keyLen + possibleNewValLen
+                else:
+                    curLen = nextLen
+                newVs += possibleNewVal
+
+            print(f"  * @{k}: {newVs}")
+        print(f"  *\n{footer}")
+        print(f"{CONFIG['comm_end']}")    
+
+    # def addKVsToModifiedDefs(self, newKVs):
+    #     for test in self.tests:
+    #         test[0].addKVs(newKVs)
+
+    # def removeKVsToModifiedDefs(self, oldKVs):
+    #     for test in self.tests:
+    #         test[0].removeKVs(oldKVs)
+    # def __str__(self):
+    #     allNewLines = self.includeHeaders
+
+    #     for v in self.tests:
+    #         allNewLines += v[0].__str__() + v[1].__str__()
+
+    #     return allNewLines
+
+    def __log(self, msg, end='\n'):
+        if CONFIG['enable_logs']:
+            print(msg, end=end)
+
 def main():
+    # File paths that need to have top headers updated
     interestingUtMtTokens = []
+
+    # File paths + functions that need to have headers updated
     interestingPyTokens = {}
 
     with open(DIFF_PATH) as diffFile:
         pyLine = ""
-        for i, line in enumerate(diffFile.readlines()):
+        for line in diffFile.readlines():
             if re.search(UTMT_FILE_RULE, line):
-                interestingUtMtTokens.append(line[:-1])
+                interestingUtMtTokens.append(line[6:-1])
             elif re.search(PY_FILE_RULE, line):
                 lineNoEnd = line[:-1].split(" ")[1][2:]
                 interestingPyTokens[lineNoEnd] = []
@@ -187,21 +326,17 @@ def main():
                 lineStrip = line[:-1].split("@@")[2].lstrip()
                 interestingPyTokens[pyLine].append(lineStrip)
 
-    pyFiles = []
-    for v in interestingPyTokens.items():
-        print(v)
-        pyFiles.append(PyFile(v))
+    umFiles = []
+    for v in interestingUtMtTokens:
+        umFiles.append(UMFile(v))
+    # pyFiles = []
+    # for v in interestingPyTokens.items():
+    #     print(v)
+    #     pyFiles.append(PyFile(v))
 
-    print(pyFiles[0])
-    # print(interestingPyTokens)
-    # print()
+    # pyFiles[0].addKVsToModifiedDefs({"some_key": ["some_val"]})
+    # print(pyFiles[0])
 
-    # pyFiles[0].extractImportBlock()
-    # pyFiles[0].defBlocks[0].addHeaderKv(
-    #     [("some_tag", "smt"), ("blank_region", "feat_val")])
-
-    # pyFiles[0].getText()
-    # pyFiles[0].defBlocks[1].addHeaderKv(("key", "value"))
 
 if __name__ == "__main__":
     main()
