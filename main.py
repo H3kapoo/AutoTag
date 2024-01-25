@@ -6,13 +6,14 @@ CONFIG = {
     "enable_logs" : True,
     # "enable_logs" : False
     # py specific
-    "ignored_markers" : ["description", "parametrize"],
+    "ignored_markers" : ["description", "parametrize", "set_sw_flags"],
     "marker_to_split" : "@pytest.mark.",
     "markers_end" : "@starting_state",
-    # "markers_end" : "def ",
     # um spcific
     "comm_start" : "/**",
     "comm_end" : "**/",
+    "comm_start_secondary" : "/*",
+    "comm_end_secondary" : "*/",
     "footer_hint" : "Copyright",
     "footer_msg" : "Copyright Me 2024"
 }
@@ -70,24 +71,38 @@ class PyHeaderMarks():
 
     def tokenize(self):
         markerSplitted = list(filter(None, self.data.split(CONFIG['marker_to_split'])))
-
-        # start state doesn't obey 'marker_to_split' syntax
+        ignoredKVs = {"ignored_markers" : []}
 
         # Put keys and values into a dict
         for marker in markerSplitted:
             kvSplit = marker.split("(", 1)
             lastKv = None
+            # It will usually be key, value , odd even
             for i, kv in enumerate(kvSplit):
                 if i%2 == 0:
-                    self.KVs[kv] = []
+                    if kv in CONFIG['ignored_markers']:
+                        ignoredKVs["ignored_markers"].append(kv)
+                    else:
+                        self.KVs[kv] = []
                     lastKv = kv
                 else:
                     if lastKv in CONFIG['ignored_markers']:
-                        self.KVs[lastKv].append(kv)
+                        ignoredKVs["ignored_markers"].append(kv)
                     else:
                         self.KVs[lastKv] =\
                             kv.replace(" ", "").replace("\n", "").replace('"', "")\
                                 .replace("'", "").replace(")", "").split(",")
+
+        if len(ignoredKVs['ignored_markers']):
+            self.KVs['ignored_markers'] = ''
+            
+        for i, v in enumerate(ignoredKVs['ignored_markers']):
+            if i%2==0:
+                self.KVs['ignored_markers'] += f"{CONFIG['marker_to_split']}{v}("
+            else:
+                self.KVs['ignored_markers'] += v
+
+        # print(self.KVs)
 
     def __str__(self):
         if not self.shouldTokenize:
@@ -98,8 +113,10 @@ class PyHeaderMarks():
             newVs = ''
             keyLen = len(f"{CONFIG['marker_to_split']}{k}(")
             curLen = keyLen
-            if k in CONFIG['ignored_markers']:
-                self.data += f"{CONFIG['marker_to_split']}{k}({''.join(v)}"
+            # if k in CONFIG['ignored_markers']:
+            if k == 'ignored_markers':
+                # self.data += f"{CONFIG['marker_to_split']}{k}({''.join(v)}"
+                self.data += f"{v}"
             else:
                 vLen = len(v)
                 for i, vi in enumerate(v):
@@ -140,10 +157,15 @@ class PyFile():
             self.lines = f.readlines()
         self.separate()
         self.__log(f"[INFO] Separation done.");
-        self.__log(f"[INFO] Functions needing modification: {self.changedDefs}");
-
+        self.__log(f"[INFO] >>> Functions needing modification according to diff file: {self.changedDefs}")
 
     def separate(self):
+        # Current caviat: if include headers are immediatelly followed by a simple def function with no markers,
+        # that function will not be part of the include headers and will not be able to be tokenized. Solution is to
+        # Always ensure that after the include headers, a valid marker follows.
+        # Always ensure that after test body a valid new marker comes post \n\n\n characters, otherwise parsing will be
+        # wrong
+
         idx = 0
 
         # Extract import part
@@ -151,9 +173,11 @@ class PyFile():
             self.includeHeaders += self.lines[idx]
             idx += 1
             if idx == len(self.lines):
-                self.__log("[WARN] Looks like end of the file and no headers could be found :(")
+                self.__log("[WARN] >>> Looks like end of the file and no headers could be found :( Nothing to chunky chunk.")
                 return
-        
+
+        # This assumes that functions are delimited by 3 new line chars, aka there are 2 empty lines between tests. If this
+        # is not the case, program will not divide functions correctly
         for x in ''.join(self.lines[idx:]).split("\n\n\n"):
             headerLines = ''
             bodyLines = ''
@@ -170,35 +194,32 @@ class PyFile():
             shouldTokenize = False
             for bLine in lines[idx:]:
                 if bLine in self.changedDefs:
-                    self.__log(f"[INFO] Function '{bLine}' changed and needs to be tokenized..")
+                    self.__log(f"[INFO] >>> Will tokenize headers of function: '{bLine}'")
                     shouldTokenize = True
                     break
-            
+
             # For the body part it's currently no need to join, but in the future we
             # might need it like so, so leave it like it is now
             self.tests.append((
                 PyHeaderMarks(headerLines, shouldTokenize),
                 PyBody(bodyLines)
                 ))
-            
+
     def addKVsToModifiedDefs(self, newKVs):
-        self.__log(f"[INFO] {'-'*10} Addition Step ({self.filePath}) {'-'*10}")
+        self.__log(f"[INFO] >>> Addition Step For ({self.filePath}) <<<")
         for test in self.tests:
             for bLine in test[1].lines.split("\n"):
                 if bLine in self.changedDefs:
-                    self.__log(f"[INFO] Found function '{bLine}' inside body that needs to be modified..")
                     test[0].addKVs(newKVs)
-        self.__log(f"[INFO] {'-'*10} Done ({self.filePath}) {'-'*10}")
-
+        self.__log(f"[INFO] >>> Addition Step Done <<<")
 
     def removeKVsToModifiedDefs(self, oldKVs):
-        self.__log(f"[INFO] {'-'*10} Removal Step ({self.filePath}) {'-'*10}")
+        self.__log(f"[INFO] >>> Removal Step For ({self.filePath}) <<<")
         for test in self.tests:
             for bLine in test[1].lines:
                 if bLine[:-1] in self.changedDefs:
-                    self.__log(f"[INFO] Found function '{bLine[:-1]}' inside body that needs to be modified..")
-            test[0].removeKVs(oldKVs)
-        self.__log(f"[INFO] {'-'*10} Done ({self.filePath}) {'-'*10}")
+                    test[0].removeKVs(oldKVs)
+        self.__log(f"[INFO] >>> Removal Step Done <<<")
 
     def __str__(self):
         allNewLines = self.includeHeaders
@@ -232,31 +253,35 @@ class UMFile():
 
         # This assumes /** **/ correctly exist
         for i, ln in enumerate(self.lines):
-            if CONFIG['comm_start'] in ln:
+            if CONFIG['comm_start'] in ln or CONFIG['comm_start_secondary'] in ln:
                 startMarkerFound = True
 
             if startMarkerFound:
                 headerData += ln
 
-            if startMarkerFound and CONFIG['comm_end'] in ln:
+            if startMarkerFound and (CONFIG['comm_end'] in ln or CONFIG['comm_end_secondary'] in ln):
                 self.bodyStartIndex = i+1
                 break
         
-        # In case they dont exist, means file has no header data yet, create one
-        # If headers are of the type /* ... */, this is incorrect input and will lead to errors.
+        # In case they dont exist, means file has no header data yet, create one.
         if not startMarkerFound:
             headerData = f"{CONFIG['comm_start']}\n * {CONFIG['footer_msg']}\n{CONFIG['comm_end']}\n"
 
         splittedHeader = headerData.split('\n')
         
         # Find "footer". Because not all files are standardized, sometimes the copyright footer is at the top of the
-        # tags..
+        # tags. Sometimes "footer" doesn't even exist, so we need to account for that too.
+        footerFound = False
         tagsUnfiltered = []
         for ln in splittedHeader:
             if CONFIG['footer_hint'] in ln:
                 self.footer = ln
+                footerFound = True
             else:
                 tagsUnfiltered.append(ln)
+
+        if not footerFound:
+            self.footer =f" * {CONFIG['footer_msg']}"
 
         # Note: we would need to replace " "s also, but some files dont have the ":" delimiter between
         #       the tag and the values
@@ -282,35 +307,35 @@ class UMFile():
         self.__log(f"[INFO] >>> Addition Step For ({self.filePath}) <<< ")
         for k,v in newKVs.items():
             if k in self.KVs:
-                self.__log(f"[INFO] Key {k} is already present. Checking value..")
+                self.__log(f"[INFO] >>> Key {k} is already present. Checking value..")
                 for vi in v:
                     if vi in self.KVs[k]:
-                        self.__log(f"[INFO] -- Value ''{vi}'' is already present. Skipping it.")
+                        self.__log(f"[INFO] >>> Value ''{vi}'' is already present. Skipping it.")
                     else:
-                        self.__log(f"[INFO] -- Value ''{vi}'' is NOT present. Adding it.")
+                        self.__log(f"[INFO] >>> Value ''{vi}'' is NOT present. Adding it.")
                         self.KVs[k].append(vi)
             else:
-                self.__log(f"[INFO] Key ''{k}'' is NOT present. Adding key and value(s) ''{','.join(v)}''")
+                self.__log(f"[INFO] >>> Key ''{k}'' is NOT present. Adding key and value(s) ''{','.join(v)}''")
                 self.KVs[k] = v
-        self.__log(f"[INFO] {'-'*10} Done {'-'*10}\n")
+        self.__log(f"[INFO] >>> Addition Step Done <<<\n")
 
     def removeKVsToModifiedDefs(self, oldKVs):
-        self.__log(f"[INFO] {'-'*10} Removal Step ({self.filePath}) {'-'*10}")
+        self.__log(f"[INFO] >>> Removal Step For ({self.filePath}) <<< ")
         for k,v in oldKVs.items():
             if k in self.KVs:
-                self.__log(f"[INFO] Key ''{k}'' is present. Checking value..")
+                self.__log(f"[INFO] >>> Key ''{k}'' is present. Checking value..")
                 for vi in v:
                     if vi in self.KVs[k]:
-                        self.__log(f"[INFO] -- Value ''{vi}'' is present inside key. Deleting it")
+                        self.__log(f"[INFO] >>> Value ''{vi}'' is present inside key. Deleting it")
                         self.KVs[k].remove(vi)
                         if not len(self.KVs[k]):
-                            self.__log(f"[INFO] -- Key ''{k}'' has no more elements. Deleting key.")
+                            self.__log(f"[INFO] >>> Key ''{k}'' has no more elements. Deleting key.")
                             del self.KVs[k]
                     else:
-                        self.__log(f"[INFO] -- Value ''{vi}'' is NOT present. Skipping it.")
+                        self.__log(f"[INFO] >>> Value ''{vi}'' is NOT present. Skipping it.")
             else:
-                self.__log(f"[INFO] Key ''{k}'' is NOT present. Nothing to do.")
-        self.__log(f"[INFO] {'-'*10} Done {'-'*10}\n")
+                self.__log(f"[INFO] >>> Key ''{k}'' is NOT present. Nothing to do.")
+        self.__log(f"[INFO] >>> Removal Step Done <<<\n")
 
     def __str__(self):
         newHeader = ''
@@ -335,7 +360,7 @@ class UMFile():
 
             newHeader += f" * @{k}: {newVs}\n"
         newHeader += f" *\n{self.footer}\n"
-        newHeader += f"{CONFIG['comm_end']}\n\n"
+        newHeader += f"{CONFIG['comm_end']}\n"
 
         # Quick fix for space remaining after last item on line
         newHeader = newHeader.replace(" \n", "\n")
@@ -376,16 +401,15 @@ def main():
         p = UMFile(v)
         p.addKVsToModifiedDefs({"new_tag" : ["newFeat", "next"]})
 
-    #     # print(p.__str__())
         with open(p.filePath, 'w') as f:
             f.writelines(p.__str__())
 
     for v in interestingPyTokens.items():
         p = PyFile(v)
-        p.addKVsToModifiedDefs({"new_tag" : ["newFeat"]})
+        # p.addKVsToModifiedDefs({"new_tag" : ["newFeat"]})
         with open(p.filePath, 'w') as f:
             f.writelines(p.__str__())
-        # print(p.__str__())
+        # p.__str__()
 
 if __name__ == "__main__":
     main()
