@@ -50,8 +50,8 @@ To maintain single-file script idea, the configuration structure is placed insid
 *```-- Python Tests Specific --```*
 
 ```ignored_markers``` List of strings denoting what markers the program shall ignore and not tokenize
-```marker_to_split``` -> Simple string that denotes how a valid marker (in the test header) starts like
-```markers_end``` -> Tells when the programs shall consider header lines are done processing.
+```marker_to_split``` Simple string that denotes how a valid marker (in the test header) starts like
+```markers_end``` Tells when the programs shall consider header lines are done processing.
 
 *```-- UT/MT Specific --```*
 
