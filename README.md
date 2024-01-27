@@ -45,19 +45,25 @@ To maintain single-file script idea, the configuration structure is placed insid
 *```-- General --```*
 
 ```max_row_len``` Used for row wrapping in case line gets too long
+
 ```enable_logs``` Enables/disables log printing
 
 *```-- Python Tests Specific --```*
 
 ```ignored_markers``` List of strings denoting what markers the program shall ignore and not tokenize
+
 ```marker_to_split``` Simple string that denotes how a valid marker (in the test header) starts like
+
 ```markers_end``` Tells when the programs shall consider header lines are done processing.
 
 *```-- UT/MT Specific --```*
 
 ```comm_start / comm_start_secondary``` String denoting how a header usually starts
+
 ```comm_end / comm_end_secondary``` String denoting how a header usually ends
+
 ```footer_hint``` If there's already a header footer (usually copyright message) inside the file header, give a hint to the program of how that looks like so it will use it instead of using ```footer_msg```
+
 ```footer_msg``` Custom message user can put at the end of the header, usually a copyright message
 
 ---
