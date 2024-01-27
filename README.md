@@ -170,3 +170,14 @@ no per test separation needs to be performed like for python test files.
 
     // other tests
 ```
+
+---
+
+### Disclaimer
+
+1. This is NOT production ready and more of a toy project that aided me in my daily tagging duties, do NOT take the code for
+granted, bugs CAN occur.
+
+2. Script was tested on Linux systems with unix line endings (\n) so Windows line endings are not supported.
+
+3. In case there are bugs, please help report them! :)
