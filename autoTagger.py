@@ -1,10 +1,53 @@
+"""
+Copyright: Hekapoo 2024 (Andrei Boje)
+
+Simple tagger made for UnitTest/ModuleTest/PythonTests.
+
+UnitTests/ModuleTests will be tagger at the top of the file, not per test itself.
+PythonTests will be tagged per test itself, but with some adjusting they can also be tagged
+in the same style as UTs and MTs.
+
+General UT/MT header:
+/**
+ * tag: val, val2, ..
+ * tag2: ...
+ *
+ * Custom copyright
+**/
+
+General Python header for test:
+
+marker_delim.tag('val1', 'val2', '...')
+marker_delim.tag2('val3', 'val4', '...')  <-- header for tagging purposes stops here
+ignored_marker.optional_marker(..)        <-- from here on, this will live in the "body" section, 
+def test_name(...):                           no need for tagging  
+    body
+
+Config structure is available also:
+-- General --
+-- max_row_len -> use this for wrapping
+-- enable_logs -> enables/disables log printing
+
+-- Python Tests Specific --
+-- ignored_markers -> list of strings denoting what markers the program shall ignore and not tokenize
+-- marker_to_split -> Simple string that denotes how a valid marker (in the test header) starts like
+-- markers_end -> Tells when the programs shall consider header lines are done processing.
+
+-- UT/MT Specific
+-- comm_start/comm_start_secondary -> String denoting how a header usually starts
+-- comm_end/comm_end_secondary -> String denoting how a header usually ends
+-- footer_hint -> If there's already a header footer (usually copyright message) inside the file header, give
+                  a hint to the program of how that looks like so it will use it instead of using "footer_msg"
+-- footer_msg -> Custom message user can put at the end of the header, usually a copyright message
+"""
+
 import re
+import argparse
 
 CONFIG = {
     # general
     "max_row_len" : 120,
     "enable_logs" : True,
-    # "enable_logs" : False
     # py specific
     "ignored_markers" : ["description", "parametrize", "set_sw_flags"],
     "marker_to_split" : "@pytest.mark.",
@@ -18,9 +61,8 @@ CONFIG = {
     "footer_msg" : "Copyright Me 2024"
 }
 
-DIFF_PATH = "file_bc.diff"
 UTMT_FILE_RULE = "^\+\+\+.*/(ut|mt)/.*"
-PY_FILE_RULE = "^\+\+\+.*/py/.*"
+PY_FILE_RULE = "^\+\+\+.*/py(_viper)?/.*"
 PY_REGEX_RULE = ".*@@ def .*"
 PY_REGEX_RULE_SECONDARY = ".*\+def .*"
 
@@ -206,7 +248,7 @@ class PyFile():
                 ))
 
     def addKVsToModifiedDefs(self, newKVs):
-        self.__log(f"[INFO] >>> Addition Step For ({self.filePath}) <<<")
+        self.__log(f"[INFO] >>> Addition Step <<<")
         for test in self.tests:
             for bLine in test[1].lines.split("\n"):
                 if bLine in self.changedDefs:
@@ -214,10 +256,10 @@ class PyFile():
         self.__log(f"[INFO] >>> Addition Step Done <<<")
 
     def removeKVsToModifiedDefs(self, oldKVs):
-        self.__log(f"[INFO] >>> Removal Step For ({self.filePath}) <<<")
+        self.__log(f"[INFO] >>> Removal Step For <<<")
         for test in self.tests:
-            for bLine in test[1].lines:
-                if bLine[:-1] in self.changedDefs:
+            for bLine in test[1].lines.split("\n"):
+                if bLine in self.changedDefs:
                     test[0].removeKVs(oldKVs)
         self.__log(f"[INFO] >>> Removal Step Done <<<")
 
@@ -304,7 +346,7 @@ class UMFile():
                 self.KVs[newKey] = newVals
 
     def addKVsToModifiedDefs(self, newKVs):
-        self.__log(f"[INFO] >>> Addition Step For ({self.filePath}) <<< ")
+        self.__log(f"[INFO] >>> Addition Step For <<<")
         for k,v in newKVs.items():
             if k in self.KVs:
                 self.__log(f"[INFO] >>> Key {k} is already present. Checking value..")
@@ -317,10 +359,10 @@ class UMFile():
             else:
                 self.__log(f"[INFO] >>> Key ''{k}'' is NOT present. Adding key and value(s) ''{','.join(v)}''")
                 self.KVs[k] = v
-        self.__log(f"[INFO] >>> Addition Step Done <<<\n")
+        self.__log(f"[INFO] >>> Addition Step Done <<<")
 
     def removeKVsToModifiedDefs(self, oldKVs):
-        self.__log(f"[INFO] >>> Removal Step For ({self.filePath}) <<< ")
+        self.__log(f"[INFO] >>> Removal Step For <<< ")
         for k,v in oldKVs.items():
             if k in self.KVs:
                 self.__log(f"[INFO] >>> Key ''{k}'' is present. Checking value..")
@@ -335,7 +377,7 @@ class UMFile():
                         self.__log(f"[INFO] >>> Value ''{vi}'' is NOT present. Skipping it.")
             else:
                 self.__log(f"[INFO] >>> Key ''{k}'' is NOT present. Nothing to do.")
-        self.__log(f"[INFO] >>> Removal Step Done <<<\n")
+        self.__log(f"[INFO] >>> Removal Step Done <<<")
 
     def __str__(self):
         newHeader = ''
@@ -373,6 +415,40 @@ class UMFile():
 
 
 def main():
+    # prog.py my_diff.diff --put tag[val1, val2] tag2[val1, val2] --rm tag[val1, val2]
+    parser = argparse.ArgumentParser(prog="AutoTagger")
+    parser.add_argument("diffPath")
+    parser.add_argument("--py_put", nargs='+', default=[])
+    parser.add_argument("--py_remove", nargs='+', default=[])
+    parser.add_argument("--um_put", nargs='+', default=[])
+    parser.add_argument("--um_remove", nargs='+', default=[])
+    args = parser.parse_args()
+
+    diffPath = args.diffPath
+    py_additionKvs = {}
+    py_removalKvs = {}
+    um_additionKvs = {}
+    um_removalKvs = {}
+    for argVal in args.py_put:
+        k, v = argVal.split("[", 1)
+        v = v.replace("]","") # remove enclosing ]
+        py_additionKvs[k] = v.split(",")
+    
+    for argVal in args.py_remove:
+        k, v = argVal.split("[", 1)
+        v = v.replace("]","") # remove enclosing ]
+        py_removalKvs[k] = v.split(",")
+
+    for argVal in args.um_put:
+        k, v = argVal.split("[", 1)
+        v = v.replace("]","") # remove enclosing ]
+        um_additionKvs[k] = v.split(",")
+    
+    for argVal in args.um_remove:
+        k, v = argVal.split("[", 1)
+        v = v.replace("]","") # remove enclosing ]
+        um_removalKvs[k] = v.split(",")
+
     # Note: If new tests are introduced, secondary py regex rule will be used
 
     # File paths that need to have top headers updated
@@ -381,7 +457,7 @@ def main():
     # File paths + functions that need to have headers updated
     interestingPyTokens = {}
 
-    with open(DIFF_PATH) as diffFile:
+    with open(diffPath) as diffFile:
         pyLine = ""
         for line in diffFile.readlines():
             if re.search(UTMT_FILE_RULE, line):
@@ -399,17 +475,19 @@ def main():
 
     for v in interestingUtMtTokens:
         p = UMFile(v)
-        p.addKVsToModifiedDefs({"new_tag" : ["newFeat", "next"]})
-
+        p.addKVsToModifiedDefs(um_additionKvs)
+        p.removeKVsToModifiedDefs(um_removalKvs)
         with open(p.filePath, 'w') as f:
             f.writelines(p.__str__())
+        print()
 
     for v in interestingPyTokens.items():
         p = PyFile(v)
-        # p.addKVsToModifiedDefs({"new_tag" : ["newFeat"]})
+        p.addKVsToModifiedDefs(py_additionKvs)
+        p.removeKVsToModifiedDefs(py_removalKvs)
         with open(p.filePath, 'w') as f:
             f.writelines(p.__str__())
-        # p.__str__()
+        print()
 
 if __name__ == "__main__":
     main()
