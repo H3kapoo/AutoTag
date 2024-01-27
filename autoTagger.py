@@ -61,10 +61,10 @@ CONFIG = {
     "footer_msg" : "Copyright Me 2024"
 }
 
-UTMT_FILE_RULE = "^\+\+\+.*/(ut|mt)/.*"
-PY_FILE_RULE = "^\+\+\+.*/py(_viper)?/.*"
-PY_REGEX_RULE = ".*@@ def .*"
-PY_REGEX_RULE_SECONDARY = ".*\+def .*"
+UTMT_FILE_RULE = "^\+\+\+.*/(ut|mt)/.*"   # Look for valid UM file name to tag
+PY_FILE_RULE = "^\+\+\+.*/py(_viper)?/.*" # Look for valid Py file name to tag
+PY_REGEX_RULE = ".*@@ def .*"             # Determine from GIT diff file what function chaged
+PY_REGEX_RULE_SECONDARY = ".*\+def .*"    # Determine from GIT diff file what function chaged (secondary regex)
 
 
 class PyHeaderMarks():
